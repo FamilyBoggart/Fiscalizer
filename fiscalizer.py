@@ -1,6 +1,40 @@
 import pandas as pd
 import os
 
+class Filters:
+    def __init__(self, file):
+        """Clase para usar filtros en un DataFrame."""
+        self.file = file
+        """Parsea la columna 'USD Equivalent' del DataFrame, eliminando símbolos de dólar y comas,"""
+        self.file["USD Equivalent"] = self.file["USD Equivalent"].replace(r"[\$,]","", regex=True).str.strip().astype(float)
+        """Crea una nueva columna 'Average Price' en el DataFrame."""
+        self.file["Average Price"] = self.file["USD Equivalent"] / self.file["Output Amount"].astype(float)
+    
+    # Getters
+    def get_trades(self):
+        """Muestra las permutas en un DataFrame."""
+        return self.file.loc[(self.file['Type'] == 'Exchange') & ~(self.file['Input Currency'] == 'EURX'), ['Input Currency', 'Input Amount', 'Output Currency', 'Output Amount', 'USD Equivalent','Average Price', 'Date / Time (UTC)']].sort_values(by='Date / Time (UTC)', ascending=True).reset_index(drop=True)
+    def get_deposits(self):
+        """Muestra los depósitos en un DataFrame."""
+        return self.file.loc[self.file['Type'] == 'Deposit To Exchange', ['Input Amount', 'Date / Time (UTC)']].sort_values(by='Date / Time (UTC)', ascending=True).reset_index(drop=True)
+    def get_buys(self):
+        """Muestra las compras en un DataFrame."""
+        return self.file.loc[(self.file['Type'] == 'Exchange') & (self.file['Input Currency'] == 'EURX'), ['Input Amount', 'Output Currency', 'Output Amount', 'USD Equivalent','Average Price', 'Date / Time (UTC)']].sort_values(by='Date / Time (UTC)', ascending=True).reset_index(drop=True)
+    def get_coin_names_earned_in_interest(self):
+        """Obtiene una lista de nombres de criptomonedas por las cuales se han recibido intereses en un DataFrame."""
+        return self.file.loc[self.file['Type'] == 'Interest','Input Currency'].unique()
+    def get_interest_by_coin(self, coin):
+        """Calcula el total de intereses recibidos por una criptomoneda específica en un DataFrame.
+        Parámetros:
+        
+        coin (str): El nombre de la criptomoneda.
+        Retorna:
+        tuple: Una tupla que contiene la cantidad total de la criptomoneda y su valor en USD.
+        """
+        coin_interest = self.file.loc[(self.file['Type'] == 'Interest') & (self.file['Input Currency'] == coin), ['Input Amount', 'USD Equivalent']]
+        usd_value = coin_interest['USD Equivalent'].sum()
+        coin_amount = coin_interest['Input Amount'].astype(float).sum()
+        return coin_amount, usd_value
 
 # Lectura del directorio actual y creación de carpetas
 def get_csv_files_in_directory():
@@ -27,14 +61,6 @@ def create_directory_for_a_file(file):
     return file_name_without_extension
 
 
-#PARSERS
-def parse_USD_equivalent_column(file):
-    """
-    Parsea la columna 'USD Equivalent' de un DataFrame, eliminando símbolos de dólar y comas,
-    y convirtiendo los valores a tipo float."""
-    file["USD Equivalent"] = file["USD Equivalent"].replace(r"[\$,]","", regex=True).str.strip().astype(float)
-    return file
-
 # Lectura del archivo CSV y catalogación de transacciones por tipo
 
 def read_csv_data(ruta):
@@ -49,7 +75,6 @@ def read_csv_data(ruta):
     """
     try:
         df = pd.read_csv(ruta)
-        df = parse_USD_equivalent_column(df)
         return df
     except Exception as e:
         print(f"Error al leer el archivo {ruta}: {e}")
@@ -101,38 +126,15 @@ def process_transactions(file):
         file = delete_from_dataframe(file, tipo).reset_index(drop=True)
     print(f'Total transactions processed: {total_count}')
 
-
-
 # Calcular intereses recibidos
-def get_coin_names_earned_in_interest(file):
-    """
-    Obtiene una lista de nombres de criptomonedas por las cuales se han recibido intereses en un DataFrame.
-    """
-    return file.loc[file['Type'] == 'Interest','Input Currency'].unique()
-
-def get_interest_by_coin(file, coin):
-    """
-    Calcula el total de intereses recibidos por una criptomoneda específica en un DataFrame.
-    Parámetros:
-    
-    file (pd.DataFrame): El DataFrame
-    coin (str): El nombre de la criptomoneda.
-    Retorna:
-    tuple: Una tupla que contiene la cantidad total de la criptomoneda y su valor en USD.
-    """
-    coin_interest = file.loc[(file['Type'] == 'Interest') & (file['Input Currency'] == coin), ['Input Amount', 'USD Equivalent']]
-    usd_value = coin_interest['USD Equivalent'].sum()
-    coin_amount = coin_interest['Input Amount'].astype(float).sum()
-    return coin_amount, usd_value
 
 def get_total_interest(file):
-    """
-    Calcula el total de intereses recibidos por cada criptomoneda en un DataFrame.
-    """
-    coins = get_coin_names_earned_in_interest(file)
+    """Calcula el total de intereses recibidos por cada criptomoneda en un DataFrame. Devuelve un diccionario con los resultados."""
+    filters = Filters(file)
+    coin_names = filters.get_coin_names_earned_in_interest()
     total_interest = {}
-    for coin in coins:
-        coin_amount, usd_value = get_interest_by_coin(file, coin)
+    for coin in coin_names:
+        coin_amount, usd_value = filters.get_interest_by_coin(coin)
         total_interest[coin] = {'amount': coin_amount, 'usd_value': usd_value}
     return total_interest
 
@@ -163,5 +165,24 @@ def main():
         os.chdir('..')
 
 main()
+def unit_test():
+    file = pd.read_csv('Nexo2022.csv')
+    filters = Filters(file)
+
+    buys_and_trades_dataframe = filters.get_trades()
+    print('Buys and Trades:')
+    print(buys_and_trades_dataframe)
+
+    deposits_dataframe = filters.get_deposits()
+    if not deposits_dataframe.empty:
+        total_deposits = deposits_dataframe['Input Amount'].astype(float).sum()
+        print(f'Total deposits: {total_deposits} EUR')
+    
+    buys_dataframe = filters.get_buys()
+    print('Buys:')
+    print(buys_dataframe)
+
+
+#unit_test()
 
 
